@@ -1,0 +1,21 @@
+sylius_twig_hooks:
+    hooks:
+        'sylius_admin.base#stylesheets':
+            app_admin_styles:
+                template: 'hook/admin/base/app_styles.html.twig'
+                priority: 50
+
+        'sylius_admin.base#javascripts':
+            app_admin_scripts:
+                template: 'hook/admin/base/app_scripts.html.twig'
+                priority: 50
+
+        'sylius_shop.base#stylesheets':
+            app_shop_styles:
+                template: 'hook/shop/base/app_styles.html.twig'
+                priority: 50
+
+        'sylius_shop.base#javascripts':
+            app_shop_scripts:
+                template: 'hook/shop/base/app_scripts.html.twig'
+                priority: 50
