@@ -26,6 +26,7 @@
     "require": {
         "php": "^8.2",
         "sylius/mollie-plugin": "^3.0",
+        "willdurand/js-translation-bundle": "^7.0",
         "sylius/paypal-plugin": "^2.0",
         "sylius/sylius": "~2.0.0",
         "sylius/twig-hooks": "*",
