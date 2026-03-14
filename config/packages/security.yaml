@@ -1,5 +1,4 @@
 security:
-    enable_authenticator_manager: true
     providers:
         sylius_admin_user_provider:
             id: sylius.admin_user_provider.email_or_name_based
@@ -17,6 +16,7 @@ security:
             security: false
 
         admin:
+            user_checker: security.user_checker.chain.admin
             switch_user: true
             context: admin
             pattern: "%sylius.security.admin_regex%"
@@ -42,7 +42,8 @@ security:
                 path: sylius_admin_logout
                 target: sylius_admin_login
 
-        new_api_admin_user:
+        api_admin:
+            user_checker: security.user_checker.chain.api_admin
             pattern: "%sylius.security.api_admin_regex%/.*"
             provider: sylius_api_admin_user_provider
             stateless: true
@@ -55,7 +56,8 @@ security:
                 failure_handler: lexik_jwt_authentication.handler.authentication_failure
             jwt: true
 
-        new_api_shop_user:
+        api_shop:
+            user_checker: security.user_checker.chain.api_shop
             pattern: "%sylius.security.api_shop_regex%/.*"
             provider: sylius_api_shop_user_provider
             stateless: true
@@ -69,6 +71,7 @@ security:
             jwt: true
 
         shop:
+            user_checker: security.user_checker.chain.shop
             switch_user: { role: ROLE_ALLOWED_TO_SWITCH }
             context: shop
             pattern: "%sylius.security.shop_regex%"
