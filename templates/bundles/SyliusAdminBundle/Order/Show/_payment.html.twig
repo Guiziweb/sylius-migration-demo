@@ -14,7 +14,7 @@
             {{ money.format(payment.amount, payment.order.currencyCode) }}
         </div>
     </div>
-    {% if not sylius_adyen_is_adyen_payment(payment) and sylius_sm_can(payment, constant('Sylius\\AdyenPlugin\\PaymentGraph::GRAPH'), constant('Sylius\\AdyenPlugin\\PaymentGraph::TRANSITION_COMPLETE')) %}
+    {% if sylius_sm_can(payment, 'sylius_payment', 'complete') %}
         <div class="ui segment">
             <form action="{{ path('sylius_admin_order_payment_complete', {'orderId': order.id, 'id': payment.id}) }}" method="post" novalidate>
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token(payment.id) }}" />
@@ -23,29 +23,4 @@
             </form>
         </div>
     {% endif %}
-    {%- if sylius_adyen_can_be_captured(payment) -%}
-        <div class="ui segment">
-            <form action="{{ path('sylius_adyen_admin_order_payment_capture', {'id': order.id, 'paymentId': payment.id}) }}" method="post" novalidate>
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token(payment.id) }}" />
-                <input type="hidden" name="_method" value="PUT">
-                <button type="submit" class="ui icon labeled tiny blue fluid loadable button"><i class="check icon"></i> {{ 'sylius.ui.complete'|trans }}</button>
-            </form>
-        </div>
-    {%- endif -%}
-    {%- if sylius_adyen_can_generate_payment_link(payment) -%}
-        {% set should_be_resent = payment.state != constant('Sylius\\Component\\Payment\\Model\\PaymentInterface::STATE_NEW') %}
-        <div class="ui segment">
-            <a
-                href="{{ path('sylius_adyen_admin_order_payment_generate_pay_link', {'id': payment.id}) }}"
-                class="ui icon labeled tiny {% if should_be_resent %}blue{% else %}teal{% endif%} fluid loadable button"
-            >
-                <i class="check icon"></i>
-                {% if should_be_resent %}
-                    {{ 'sylius_adyen.ui.resend_payment_link'|trans }}
-                {% else %}
-                    {{ 'sylius_adyen.ui.send_payment_link'|trans }}
-                {% endif %}
-            </a>
-        </div>
-    {%- endif -%}
 </div>
