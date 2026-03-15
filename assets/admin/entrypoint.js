@@ -1,4 +1,2 @@
-import '../../vendor/sylius/mollie-plugin/assets/admin/entrypoint';
-
-// In this file you can import assets like images or stylesheets
+import '@vendor/sylius/mollie-plugin/assets/admin/entrypoint';
 console.log('Hello Webpack Encore! Edit me in assets/admin/entrypoint.js');
