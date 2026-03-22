@@ -1,0 +1,206 @@
+name: migration
+version: "1.0.0"
+description: Worker de migration Sylius 1.14 → 2.0 — boucle Mikado orchestrée par AWF
+
+inputs:
+  - name: github_repo
+    type: string
+    required: true
+  - name: project_dir
+    type: string
+    required: true
+
+states:
+  initial: find_issue
+
+  # ─── TROUVER UNE ISSUE ────────────────────────────────────────────────────
+
+  find_issue:
+    type: step
+    command: bash {{.inputs.project_dir}}/.awf/scripts/find_issue.sh {{.inputs.github_repo}}
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    transitions:
+      - when: 'states.find_issue.Output contains "AUCUNE_ISSUE"'
+        goto: done
+      - when: ""
+        goto: claim_issue
+
+  # ─── CLAIMER L'ISSUE ──────────────────────────────────────────────────────
+
+  claim_issue:
+    type: step
+    command: |
+      ISSUE_NUM=$(echo '{{.states.find_issue.Output}}' | jq -r '.number')
+      gh issue edit $ISSUE_NUM --repo {{.inputs.github_repo}} --add-assignee @me
+      gh issue comment $ISSUE_NUM --repo {{.inputs.github_repo}} --body "[worker] Je prends cette issue."
+      echo $ISSUE_NUM
+    retry:
+      max_attempts: 3
+      backoff: constant
+    on_success: read_context
+    on_failure: find_issue
+
+  # ─── LIRE L'ISSUE ET LE KB ────────────────────────────────────────────────
+
+  read_context:
+    type: step
+    command: |
+      ISSUE_NUM=$(echo '{{.states.find_issue.Output}}' | jq -r '.number')
+      LABEL=$(echo '{{.states.find_issue.Output}}' | jq -r '.label')
+      echo "LABEL:$LABEL"
+      echo "---"
+      gh issue view $ISSUE_NUM --repo {{.inputs.github_repo}} --json title,body \
+        --jq '"# " + .title + "\n\n" + .body'
+    on_success: read_kb
+    on_failure: find_issue
+
+  read_kb:
+    type: step
+    command: |
+      LABEL=$(echo '{{.states.find_issue.Output}}' | jq -r '.label')
+      cat {{.inputs.project_dir}}/.claude/knowledge/kb-$LABEL.md
+    on_success: create_branch
+    on_failure: create_branch
+
+  # ─── CRÉER LA BRANCHE ─────────────────────────────────────────────────────
+
+  create_branch:
+    type: step
+    command: |
+      ISSUE_NUM=$(echo '{{.states.find_issue.Output}}' | jq -r '.number')
+      cd {{.inputs.project_dir}}
+      git checkout main && git pull
+      git checkout -b migration/issue-$ISSUE_NUM 2>/dev/null || git checkout migration/issue-$ISSUE_NUM
+      echo "migration/issue-$ISSUE_NUM"
+    retry:
+      max_attempts: 3
+      backoff: constant
+    on_success: implement
+    on_failure: unassign_and_retry
+
+  # ─── CLAUDE IMPLÉMENTE ────────────────────────────────────────────────────
+
+  implement:
+    type: agent
+    provider: claude
+    prompt_file: "{{.inputs.project_dir}}/.awf/prompts/implement.md"
+    system_prompt: "Tu es un expert Symfony/Sylius. Tu implémentes uniquement ce qui t'est demandé, rien de plus."
+    options:
+      model: claude-sonnet-4-6
+      dangerouslySkipPermissions: true
+      allowedTools: "Bash,Read,Write,Edit,Glob,Grep"
+    timeout: 1800
+    transitions:
+      - when: 'states.implement.Output contains "DONE"'
+        goto: validate
+      - when: 'states.implement.Output contains "BLOCKED"'
+        goto: create_subissue
+      - when: ""
+        goto: unassign_and_retry
+
+  # ─── VALIDER ──────────────────────────────────────────────────────────────
+
+  validate:
+    type: step
+    command: |
+      LABEL=$(echo '{{.states.find_issue.Output}}' | jq -r '.label')
+      bash {{.inputs.project_dir}}/.awf/scripts/validate.sh $LABEL {{.inputs.project_dir}}
+    retry:
+      max_attempts: 3
+      backoff: constant
+    on_success: commit
+    on_failure: unassign_and_retry
+
+  # ─── COMMIT + PUSH + PR ───────────────────────────────────────────────────
+
+  commit:
+    type: step
+    command: |
+      ISSUE_NUM=$(echo '{{.states.find_issue.Output}}' | jq -r '.number')
+      LABEL=$(echo '{{.states.find_issue.Output}}' | jq -r '.label')
+      cd {{.inputs.project_dir}}
+      git add -A
+      git commit -m "refactor($LABEL): migration Sylius 2.0 - Closes #$ISSUE_NUM"
+    retry:
+      max_attempts: 3
+      backoff: constant
+    on_success: push
+    on_failure: unassign_and_retry
+
+  push:
+    type: step
+    command: |
+      BRANCH={{.states.create_branch.Output}}
+      cd {{.inputs.project_dir}}
+      git push -u origin $BRANCH
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    on_success: create_pr
+    on_failure: unassign_and_retry
+
+  create_pr:
+    type: step
+    command: |
+      ISSUE_NUM=$(echo '{{.states.find_issue.Output}}' | jq -r '.number')
+      LABEL=$(echo '{{.states.find_issue.Output}}' | jq -r '.label')
+      TITLE=$(gh issue view $ISSUE_NUM --repo {{.inputs.github_repo}} --json title --jq '.title')
+      gh pr create --repo {{.inputs.github_repo}} \
+        --title "refactor($LABEL): $TITLE" \
+        --body "Closes #$ISSUE_NUM" \
+        --base main
+    retry:
+      max_attempts: 3
+      backoff: constant
+    on_success: merge_pr
+    on_failure: unassign_and_retry
+
+  merge_pr:
+    type: step
+    command: |
+      ISSUE_NUM=$(echo '{{.states.find_issue.Output}}' | jq -r '.number')
+      BRANCH={{.states.create_branch.Output}}
+      PR_NUM=$(gh pr list --repo {{.inputs.github_repo}} \
+        --head $BRANCH \
+        --json number --jq '.[0].number')
+      gh pr merge $PR_NUM --repo {{.inputs.github_repo}} --squash --delete-branch
+      gh issue comment $ISSUE_NUM --repo {{.inputs.github_repo}} \
+        --body "[worker] PR #$PR_NUM mergée."
+    retry:
+      max_attempts: 3
+      backoff: exponential
+    on_success: find_issue
+    on_failure: find_issue
+
+  # ─── SOUS-ISSUE SI BLOQUÉ ─────────────────────────────────────────────────
+
+  create_subissue:
+    type: step
+    command: |
+      bash {{.inputs.project_dir}}/.awf/scripts/create_subissue.sh \
+        {{.inputs.github_repo}} \
+        "$(echo '{{.states.find_issue.Output}}' | jq -r '.number')" \
+        "{{.states.implement.Output}}"
+    retry:
+      max_attempts: 3
+      backoff: constant
+    on_success: find_issue
+    on_failure: find_issue
+
+  # ─── DÉSASSIGNER SI ERREUR ────────────────────────────────────────────────
+
+  unassign_and_retry:
+    type: step
+    command: |
+      ISSUE_NUM=$(echo '{{.states.find_issue.Output}}' | jq -r '.number')
+      cd {{.inputs.project_dir}} && git checkout main 2>/dev/null || true
+      gh issue edit $ISSUE_NUM --repo {{.inputs.github_repo}} --remove-assignee @me 2>/dev/null || true
+    on_success: find_issue
+    on_failure: find_issue
+
+  # ─── FIN ──────────────────────────────────────────────────────────────────
+
+  done:
+    type: terminal

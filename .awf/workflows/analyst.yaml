@@ -1,0 +1,34 @@
+name: analyst
+version: "1.0.0"
+description: Scanne le projet Sylius 1.14 et crée les issues de domaine sur GitHub
+
+inputs:
+  - name: github_repo
+    type: string
+    required: true
+  - name: project_dir
+    type: string
+    required: true
+
+states:
+  initial: run
+
+  run:
+    type: agent
+    provider: claude
+    prompt_file: "{{.awf.prompts_dir}}/analyst.md"
+    options:
+      model: claude-sonnet-4-6
+      dangerouslySkipPermissions: true
+      allowedTools: "Bash,Read,Glob,Grep"
+    timeout: 600
+    on_success: done
+    on_failure: failed
+
+  done:
+    type: terminal
+
+  failed:
+    type: step
+    command: 'echo "Analyst arrete sur erreur -- relancer avec : awf resume"'
+    on_success: done
