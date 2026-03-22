@@ -1,0 +1,5 @@
+# AWF Project Configuration
+inputs:
+  github_repo: Guiziweb/sylius-migration-demo
+  github_owner: Guiziweb
+  project_dir: /Users/camilleislasse/sylius-migration-demo
